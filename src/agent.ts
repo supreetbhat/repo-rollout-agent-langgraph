@@ -1,6 +1,6 @@
 import { tool } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { createAgent } from "langchain";
+import { createAgent, modelCallLimitMiddleware, modelRetryMiddleware } from "langchain";
 import { z } from "zod";
 import { readRepoFile, runTypecheck, writeRepoFile } from "./tools.ts";
 
@@ -60,7 +60,14 @@ const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-const agent = createAgent({ model, tools: createRepoTools(repoPath) });
+const agent = createAgent({
+  model,
+  tools: createRepoTools(repoPath),
+  middleware: [
+    modelCallLimitMiddleware({ runLimit: 8, exitBehavior: "error" }),
+    modelRetryMiddleware({ maxRetries: 2, onFailure: "error" }),
+  ],
+});
 
 const result = await agent.invoke({ messages: [{ role: "user", content: task }] });
 
