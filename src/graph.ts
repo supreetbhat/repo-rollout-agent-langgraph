@@ -3,7 +3,6 @@ import { runRepoAgent } from "./agent.ts";
 import { listChangedFiles, runTypecheck } from "./tools.ts";
 
 const TARGETS = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-targets";
-const REPOS = ["app-one", "app-two", "app-three"];
 const EXPECTED_CHANGES = ["src/main.tsx", "src/tracking.ts"];
 
 type RepoStatus = "pending" | "changed" | "skipped" | "stuck";
@@ -66,7 +65,7 @@ function continueUnlessStopped(state: State) {
   return state.status === "pending" ? "continue" : "stop";
 }
 
-const graph = new StateGraph(RepoState)
+export const graph = new StateGraph(RepoState)
   .addNode("baseline_check", baselineCheck)
   .addNode("run_agent", agentStep)
   .addNode("final_check", finalCheck)
@@ -76,11 +75,3 @@ const graph = new StateGraph(RepoState)
   .addEdge("final_check", END)
   .compile();
 
-const results: State[] = [];
-
-for (const repoName of REPOS) {
-  console.log(`=== ${repoName}`);
-  results.push(await graph.invoke({ repoName, status: "pending", modelCalls: 0, reason: "" }));
-}
-
-console.table(results);

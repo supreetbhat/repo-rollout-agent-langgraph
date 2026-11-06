@@ -51,3 +51,8 @@ export async function listChangedFiles(repoPath: string): Promise<string[]> {
   const { stdout } = await run("git", ["status", "--porcelain"], { cwd: repoPath });
   return stdout.split("\n").filter(Boolean).map((line) => line.slice(3));
 }
+
+export async function getDiff(repoPath: string): Promise<string> {
+  const { stdout } = await run("git", ["diff"], { cwd: repoPath });
+  return stdout;
+}

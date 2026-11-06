@@ -1,0 +1,6 @@
+{
+  "node_version": "24",
+  "graphs": { "rollout": "./src/graph.ts:graph" },
+  "env": ".env",
+  "dependencies": ["."]
+}
