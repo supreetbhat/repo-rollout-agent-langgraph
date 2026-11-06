@@ -4,8 +4,6 @@ import { createAgent, modelCallLimitMiddleware, modelRetryMiddleware } from "lan
 import { z } from "zod";
 import { readRepoFile, runTypecheck, writeRepoFile } from "./tools.ts";
 
-const repoPath = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-targets/app-one";
-
 const task = `Add app open tracking to this React app.
 1. Read src/main.tsx first, because the code may differ between repos.
 2. Create src/tracking.ts exporting a function trackAppOpened(): void that calls console.log("app_opened").
@@ -60,17 +58,17 @@ const model = new ChatGoogleGenerativeAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-const agent = createAgent({
-  model,
-  tools: createRepoTools(repoPath),
-  middleware: [
-    modelCallLimitMiddleware({ runLimit: 8, exitBehavior: "error" }),
-    modelRetryMiddleware({ maxRetries: 2, onFailure: "error" }),
-  ],
-});
+export async function runRepoAgent(repoPath: string): Promise<number> {
+  const agent = createAgent({
+    model,
+    tools: createRepoTools(repoPath),
+    middleware: [
+      modelCallLimitMiddleware({ runLimit: 8, exitBehavior: "error" }),
+      modelRetryMiddleware({ maxRetries: 2, onFailure: "error" }),
+    ],
+  });
 
-const result = await agent.invoke({ messages: [{ role: "user", content: task }] });
+  const result = await agent.invoke({ messages: [{ role: "user", content: task }] });
 
-for (const message of result.messages) {
-  console.log(message.getType(), message.text);
+  return result.messages.filter((message) => message.getType() === "ai").length;
 }
