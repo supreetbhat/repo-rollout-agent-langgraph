@@ -2,3 +2,4 @@ node_modules
 .DS_Store
 .env
 .langgraph_api
+rollout.sqlite*
