@@ -1,8 +1,20 @@
 import { Annotation, END, interrupt, START, StateGraph } from "@langchain/langgraph";
 import { runRepoAgent } from "./agent.ts";
-import { getDiff, listChangedFiles, readRepoFile, runTypecheck } from "./tools.ts";
+import {
+  findOpenPullRequest,
+  getDiff,
+  listChangedFiles,
+  openPullRequest,
+  prepareRepo,
+  readRepoFile,
+  runTypecheck,
+} from "./tools.ts";
 
-const TARGETS = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-targets";
+const OWNER = "supreetbhat";
+const WORKSPACE = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-workspace";
+const BRANCH = "add-app-open-tracking";
+const PR_TITLE = "Add app open tracking";
+const PR_BODY = "Adds src/tracking.ts and calls trackAppOpened once at startup. Opened by a rollout agent after automated checks and human review.";
 const EXPECTED_CHANGES = ["src/main.tsx", "src/tracking.ts"];
 
 type RepoStatus = "pending" | "changed" | "skipped" | "stuck";
@@ -12,20 +24,34 @@ const RepoState = Annotation.Root({
   status: Annotation<RepoStatus>,
   modelCalls: Annotation<number>,
   reason: Annotation<string>,
+  pullRequest: Annotation<string>,
 });
 
 type State = typeof RepoState.State;
 
 function pathFor(state: State): string {
-  return `${TARGETS}/${state.repoName}`;
+  return `${WORKSPACE}/${state.repoName}`;
+}
+
+function fullName(state: State): string {
+  return `${OWNER}/${state.repoName}`;
+}
+
+async function cloneRepo(state: State): Promise<Partial<State>> {
+  try {
+    const existing = await findOpenPullRequest(fullName(state), BRANCH);
+    if (existing) {
+      return { status: "skipped", reason: "Pull request already open", pullRequest: existing };
+    }
+
+    await prepareRepo(`https://github.com/${fullName(state)}.git`, pathFor(state), BRANCH);
+    return {};
+  } catch (error) {
+    return { status: "stuck", reason: `Could not prepare the repo: ${(error as Error).message}` };
+  }
 }
 
 async function baselineCheck(state: State): Promise<Partial<State>> {
-  const startingChanges = await listChangedFiles(pathFor(state));
-  if (startingChanges.length > 0) {
-    return { status: "skipped", reason: "Already has uncommitted changes" };
-  }
-
   const check = await runTypecheck(pathFor(state));
   if (!check.passed) {
     return { status: "skipped", reason: "Type errors before the agent started" };
@@ -58,7 +84,7 @@ async function finalCheck(state: State): Promise<Partial<State>> {
     return { status: "stuck", reason: `Wrong files changed: ${changed.join(", ")}` };
   }
 
-   return {};
+  return {};
 }
 
 async function humanReview(state: State): Promise<Partial<State>> {
@@ -69,10 +95,26 @@ async function humanReview(state: State): Promise<Partial<State>> {
   const decision = interrupt({ repo: state.repoName, diff, newFile });
 
   if (decision === "approve") {
-    return { status: "changed", reason: "Approved by a human" };
+    return {};
   }
 
-  return { status: "stuck", reason: "Rejected by a human, changes left for inspection" };
+  return { status: "stuck", reason: "Rejected by a human, no pull request opened" };
+}
+
+async function publishChange(state: State): Promise<Partial<State>> {
+  try {
+    const pullRequest = await openPullRequest(
+      pathFor(state),
+      fullName(state),
+      BRANCH,
+      EXPECTED_CHANGES,
+      PR_TITLE,
+      PR_BODY,
+    );
+    return { status: "changed", reason: "Pull request opened", pullRequest };
+  } catch (error) {
+    return { status: "stuck", reason: `Could not open the pull request: ${(error as Error).message}` };
+  }
 }
 
 function continueUnlessStopped(state: State) {
@@ -80,15 +122,18 @@ function continueUnlessStopped(state: State) {
 }
 
 export const workflow = new StateGraph(RepoState)
+  .addNode("clone_repo", cloneRepo)
   .addNode("baseline_check", baselineCheck)
   .addNode("run_agent", agentStep)
   .addNode("final_check", finalCheck)
   .addNode("human_review", humanReview)
-  .addEdge(START, "baseline_check")
+  .addNode("open_pull_request", publishChange)
+  .addEdge(START, "clone_repo")
+  .addConditionalEdges("clone_repo", continueUnlessStopped, { continue: "baseline_check", stop: END })
   .addConditionalEdges("baseline_check", continueUnlessStopped, { continue: "run_agent", stop: END })
   .addConditionalEdges("run_agent", continueUnlessStopped, { continue: "final_check", stop: END })
   .addConditionalEdges("final_check", continueUnlessStopped, { continue: "human_review", stop: END })
-  .addEdge("human_review", END);
+  .addConditionalEdges("human_review", continueUnlessStopped, { continue: "open_pull_request", stop: END })
+  .addEdge("open_pull_request", END);
 
 export const graph = workflow.compile();
-

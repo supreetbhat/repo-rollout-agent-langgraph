@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -55,4 +55,39 @@ export async function listChangedFiles(repoPath: string): Promise<string[]> {
 export async function getDiff(repoPath: string): Promise<string> {
   const { stdout } = await run("git", ["diff"], { cwd: repoPath });
   return stdout;
+}
+
+export async function prepareRepo(cloneUrl: string, repoPath: string, branch: string): Promise<void> {
+  await rm(repoPath, { recursive: true, force: true });
+  await run("git", ["clone", cloneUrl, repoPath]);
+  await run("git", ["switch", "-c", branch], { cwd: repoPath });
+  await run("npm", ["ci"], { cwd: repoPath });
+}
+
+export async function findOpenPullRequest(repo: string, branch: string): Promise<string> {
+  const { stdout } = await run("gh", [
+    "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url",
+  ]);
+  return stdout.trim();
+}
+
+export async function openPullRequest(
+  repoPath: string,
+  repo: string,
+  branch: string,
+  files: string[],
+  title: string,
+  body: string,
+): Promise<string> {
+  await run("git", ["add", ...files], { cwd: repoPath });
+  await run("git", ["commit", "-m", title], { cwd: repoPath });
+  await run("git", ["push", "-u", "origin", branch], { cwd: repoPath });
+
+  const { stdout } = await run(
+    "gh",
+    ["pr", "create", "--repo", repo, "--base", "main", "--head", branch, "--title", title, "--body", body],
+    { cwd: repoPath },
+  );
+
+  return stdout.trim();
 }
