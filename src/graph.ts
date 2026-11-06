@@ -1,6 +1,6 @@
-import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { Annotation, END, interrupt, START, StateGraph } from "@langchain/langgraph";
 import { runRepoAgent } from "./agent.ts";
-import { listChangedFiles, runTypecheck } from "./tools.ts";
+import { getDiff, listChangedFiles, readRepoFile, runTypecheck } from "./tools.ts";
 
 const TARGETS = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-targets";
 const EXPECTED_CHANGES = ["src/main.tsx", "src/tracking.ts"];
@@ -58,20 +58,37 @@ async function finalCheck(state: State): Promise<Partial<State>> {
     return { status: "stuck", reason: `Wrong files changed: ${changed.join(", ")}` };
   }
 
-  return { status: "changed", reason: "Passed the final checks" };
+   return {};
+}
+
+async function humanReview(state: State): Promise<Partial<State>> {
+  const repoPath = pathFor(state);
+  const diff = await getDiff(repoPath);
+  const newFile = await readRepoFile(repoPath, "src/tracking.ts");
+
+  const decision = interrupt({ repo: state.repoName, diff, newFile });
+
+  if (decision === "approve") {
+    return { status: "changed", reason: "Approved by a human" };
+  }
+
+  return { status: "stuck", reason: "Rejected by a human, changes left for inspection" };
 }
 
 function continueUnlessStopped(state: State) {
   return state.status === "pending" ? "continue" : "stop";
 }
 
-export const graph = new StateGraph(RepoState)
+export const workflow = new StateGraph(RepoState)
   .addNode("baseline_check", baselineCheck)
   .addNode("run_agent", agentStep)
   .addNode("final_check", finalCheck)
+  .addNode("human_review", humanReview)
   .addEdge(START, "baseline_check")
   .addConditionalEdges("baseline_check", continueUnlessStopped, { continue: "run_agent", stop: END })
   .addConditionalEdges("run_agent", continueUnlessStopped, { continue: "final_check", stop: END })
-  .addEdge("final_check", END)
-  .compile();
+  .addConditionalEdges("final_check", continueUnlessStopped, { continue: "human_review", stop: END })
+  .addEdge("human_review", END);
+
+export const graph = workflow.compile();
 
