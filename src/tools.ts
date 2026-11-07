@@ -3,7 +3,6 @@ import { resolve, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const ALLOWED_WRITES = ["src/main.tsx", "src/tracking.ts"];
 const run = promisify(execFile);
 
 function safePath(repoPath: string, filePath: string): string {
@@ -21,10 +20,15 @@ export async function readRepoFile(repoPath: string, filePath: string): Promise<
   return await readFile(safePath(repoPath, filePath), "utf8");
 }
 
-export async function writeRepoFile(repoPath: string, filePath: string, content: string): Promise<string> {
+export async function writeRepoFile(
+  repoPath: string,
+  filePath: string,
+  content: string,
+  allowedFiles: string[],
+): Promise<string> {
   const fullPath = safePath(repoPath, filePath);
 
-  if (!ALLOWED_WRITES.includes(filePath)) {
+  if (!allowedFiles.includes(filePath)) {
     throw new Error(`Not allowed to change: ${filePath}`);
   }
 
@@ -50,6 +54,14 @@ export async function runTypecheck(repoPath: string): Promise<TypecheckResult> {
 export async function listChangedFiles(repoPath: string): Promise<string[]> {
   const { stdout } = await run("git", ["status", "--porcelain"], { cwd: repoPath });
   return stdout.split("\n").filter(Boolean).map((line) => line.slice(3));
+}
+
+export async function listNewFiles(repoPath: string): Promise<string[]> {
+  const { stdout } = await run("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repoPath });
+  return stdout
+    .split("\n")
+    .filter((line) => line.startsWith("??"))
+    .map((line) => line.slice(3));
 }
 
 export async function getDiff(repoPath: string): Promise<string> {

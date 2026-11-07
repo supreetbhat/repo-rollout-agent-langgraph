@@ -28,7 +28,7 @@ Every repository ends with one of three results:
 The rules are enforced in code and not left to the prompt:
 
 * The file tools refuse any path outside the repository being worked on.
-* The write tool can only change `src/main.tsx` and `src/tracking.ts`.
+* The write tool can only change the files listed in `src/rollout.ts`.
 * The model has no Git or GitHub tool, so it cannot push anything. Fixed code does that after a person approves.
 * Middleware limits each agent run to 8 model calls and retries failed model calls.
 
@@ -40,6 +40,7 @@ A run stopped at the approval question goes straight back to that question. If t
 
 ## Project structure
 
+* `src/rollout.ts` describes the rollout: the task for the model, the files it may change, the branch, the pull request text and the repositories.
 * `src/graph.ts` defines the workflow and its checks.
 * `src/agent.ts` creates the LangChain agent, its tools and its middleware.
 * `src/tools.ts` holds the plain functions for files, the type checker, Git and GitHub.
@@ -50,9 +51,11 @@ A run stopped at the approval question goes straight back to that question. If t
 You need Node, Git, the GitHub command line tool signed in to your account, and a Gemini API key.
 
 1. Run `npm install`.
-2. Create a `.env` file containing `GEMINI_API_KEY=your_key`.
-3. Change `OWNER` and `WORKSPACE` in `src/graph.ts`, and the repository names in `src/run.ts`, to match your own account and computer.
+2. Create a `.env` file containing `GEMINI_API_KEY=your_key`, `GITHUB_OWNER=your_github_name` and `ROLLOUT_WORKSPACE=/folder/where/repos/are/cloned`.
+3. Change the repository names in `src/rollout.ts` to repositories in your account.
 4. Run `npm start`. Pass a run name as the first argument to `src/run.ts` to keep separate runs apart.
+
+To roll out a different change, edit `src/rollout.ts` only. Give the new rollout its own branch name, because a repository with an open pull request on that branch is skipped.
 
 To see traces in LangSmith, add `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` and `LANGSMITH_PROJECT` to `.env`. To open the workflow in LangGraph Studio, run `npm run studio`.
 
@@ -61,4 +64,4 @@ To see traces in LangSmith, add `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` an
 * The only automated code check is the type checker. It cannot prove that the tracking fires when an app runs. A real rollout would also rely on each repository's tests and CI.
 * Repositories run one after another, which would be slow across hundreds of them.
 * SQLite suits one computer. Several machines sharing a rollout would need a shared store such as Postgres.
-* The change, the repository list and the file allow list are written directly into the code.
+* The rollout is a TypeScript file, so changing it means editing code. Loading it from a JSON file named on the command line would remove that step.

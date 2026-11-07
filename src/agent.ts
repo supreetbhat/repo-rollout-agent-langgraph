@@ -2,14 +2,8 @@ import { tool } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createAgent, modelCallLimitMiddleware, modelRetryMiddleware } from "langchain";
 import { z } from "zod";
+import { rollout } from "./rollout.ts";
 import { readRepoFile, runTypecheck, writeRepoFile } from "./tools.ts";
-
-const task = `Add app open tracking to this React app.
-1. Read src/main.tsx first, because the code may differ between repos.
-2. Create src/tracking.ts exporting a function trackAppOpened(): void that calls console.log("app_opened").
-3. Update src/main.tsx to import it from "./tracking.ts" and call it once when the app starts. Keep everything else as it is.
-4. Run run_typecheck. If there are errors, fix them and run it again.
-5. When the type check passes, stop and summarise what you changed.`;
 
 async function safely(action: () => Promise<string>): Promise<string> {
   try {
@@ -30,10 +24,10 @@ function createRepoTools(repo: string) {
   );
 
   const writeFileTool = tool(
-    ({ path, content }) => safely(() => writeRepoFile(repo, path, content)),
+    ({ path, content }) => safely(() => writeRepoFile(repo, path, content, rollout.files)),
     {
       name: "write_file",
-      description: "Replace the full contents of a file. Only src/main.tsx and src/tracking.ts can be written.",
+      description: `Replace the full contents of a file. Only ${rollout.files.join(" and ")} can be written.`,
       schema: z.object({
         path: z.string().describe("File path inside the repo"),
         content: z.string().describe("The complete new contents of the file"),
@@ -68,7 +62,7 @@ export async function runRepoAgent(repoPath: string): Promise<number> {
     ],
   });
 
-  const result = await agent.invoke({ messages: [{ role: "user", content: task }] });
+  const result = await agent.invoke({ messages: [{ role: "user", content: rollout.task }] });
 
   return result.messages.filter((message) => message.getType() === "ai").length;
 }

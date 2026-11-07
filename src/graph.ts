@@ -1,21 +1,16 @@
 import { Annotation, END, interrupt, START, StateGraph } from "@langchain/langgraph";
 import { runRepoAgent } from "./agent.ts";
+import { OWNER, rollout, WORKSPACE } from "./rollout.ts";
 import {
   findOpenPullRequest,
   getDiff,
   listChangedFiles,
+  listNewFiles,
   openPullRequest,
   prepareRepo,
   readRepoFile,
   runTypecheck,
 } from "./tools.ts";
-
-const OWNER = "supreetbhat";
-const WORKSPACE = "/Users/supreetbhat/Code/TypeScriptAgents/repo-rollout-workspace";
-const BRANCH = "add-app-open-tracking";
-const PR_TITLE = "Add app open tracking";
-const PR_BODY = "Adds src/tracking.ts and calls trackAppOpened once at startup. Opened by a rollout agent after automated checks and human review.";
-const EXPECTED_CHANGES = ["src/main.tsx", "src/tracking.ts"];
 
 type RepoStatus = "pending" | "changed" | "skipped" | "stuck";
 
@@ -39,12 +34,12 @@ function fullName(state: State): string {
 
 async function cloneRepo(state: State): Promise<Partial<State>> {
   try {
-    const existing = await findOpenPullRequest(fullName(state), BRANCH);
+    const existing = await findOpenPullRequest(fullName(state), rollout.branch);
     if (existing) {
       return { status: "skipped", reason: "Pull request already open", pullRequest: existing };
     }
 
-    await prepareRepo(`https://github.com/${fullName(state)}.git`, pathFor(state), BRANCH);
+    await prepareRepo(`https://github.com/${fullName(state)}.git`, pathFor(state), rollout.branch);
     return {};
   } catch (error) {
     return { status: "stuck", reason: `Could not prepare the repo: ${(error as Error).message}` };
@@ -77,8 +72,8 @@ async function finalCheck(state: State): Promise<Partial<State>> {
 
   const changed = await listChangedFiles(pathFor(state));
   const expectedOnly =
-    changed.length === EXPECTED_CHANGES.length &&
-    EXPECTED_CHANGES.every((file) => changed.includes(file));
+    changed.length === rollout.files.length &&
+    rollout.files.every((file) => changed.includes(file));
 
   if (!expectedOnly) {
     return { status: "stuck", reason: `Wrong files changed: ${changed.join(", ")}` };
@@ -90,9 +85,14 @@ async function finalCheck(state: State): Promise<Partial<State>> {
 async function humanReview(state: State): Promise<Partial<State>> {
   const repoPath = pathFor(state);
   const diff = await getDiff(repoPath);
-  const newFile = await readRepoFile(repoPath, "src/tracking.ts");
 
-  const decision = interrupt({ repo: state.repoName, diff, newFile });
+  // git diff leaves out files that did not exist before, so show those in full.
+  const newFiles: { path: string; content: string }[] = [];
+  for (const path of await listNewFiles(repoPath)) {
+    newFiles.push({ path, content: await readRepoFile(repoPath, path) });
+  }
+
+  const decision = interrupt({ repo: state.repoName, diff, newFiles });
 
   if (decision === "approve") {
     return {};
@@ -106,10 +106,10 @@ async function publishChange(state: State): Promise<Partial<State>> {
     const pullRequest = await openPullRequest(
       pathFor(state),
       fullName(state),
-      BRANCH,
-      EXPECTED_CHANGES,
-      PR_TITLE,
-      PR_BODY,
+      rollout.branch,
+      rollout.files,
+      rollout.title,
+      rollout.body,
     );
     return { status: "changed", reason: "Pull request opened", pullRequest };
   } catch (error) {

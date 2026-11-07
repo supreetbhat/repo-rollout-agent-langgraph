@@ -2,14 +2,14 @@ import { Command } from "@langchain/langgraph";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { createInterface } from "node:readline/promises";
 import { workflow } from "./graph.ts";
+import { rollout } from "./rollout.ts";
 
-const REPOS = ["rollout-demo-app-one", "rollout-demo-app-two", "rollout-demo-app-three"];
 const RUN_ID = process.argv[2] ?? "run-1";
 const graph = workflow.compile({ checkpointer: SqliteSaver.fromConnString("rollout.sqlite") });
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
 const results = [];
 
-for (const repoName of REPOS) {
+for (const repoName of rollout.repos) {
   console.log(`\n=== ${repoName}`);
   const config = { configurable: { thread_id: `${RUN_ID}:${repoName}` } };
 
@@ -27,9 +27,14 @@ for (const repoName of REPOS) {
   snapshot = await graph.getState(config);
 
   while (snapshot.next.length > 0) {
-    const review = snapshot.tasks[0].interrupts[0].value as { diff: string; newFile: string };
+    const review = snapshot.tasks[0].interrupts[0].value as {
+      diff: string;
+      newFiles: { path: string; content: string }[];
+    };
     console.log(review.diff);
-    console.log("New file src/tracking.ts:\n" + review.newFile);
+    for (const file of review.newFiles) {
+      console.log(`New file ${file.path}:\n${file.content}`);
+    }
 
     const answer = await terminal.question("Approve this change? (y/n) ");
     const decision = answer.trim().toLowerCase() === "y" ? "approve" : "reject";
