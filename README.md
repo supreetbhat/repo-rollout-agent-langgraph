@@ -10,6 +10,12 @@ This is a small demonstration of the pattern. It runs against three public test 
 
 Each repository goes through the same LangGraph workflow, one step at a time:
 
+<p align="center">
+  <img src="docs/graph.png" alt="LangGraph workflow: clone_repo, baseline_check, run_agent, final_check, human_review and open_pull_request, each able to stop early and go to the end" width="420">
+</p>
+
+The picture is the workflow as LangGraph Studio draws it. Solid arrows always run: the start leads to `clone_repo`, and `open_pull_request` leads to the end. Dashed arrows are choices made after a step: while the status is still `pending` the repository moves on to the next step, otherwise it goes straight to the end. A skipped or stuck repository therefore never reaches the next step.
+
 1. `clone_repo` stops if a pull request is already open. Otherwise it clones the repository, creates a branch and installs the packages.
 2. `baseline_check` runs the type checker. A repository that already has type errors is skipped, so the agent is never blamed for an existing problem.
 3. `run_agent` runs the LangChain agent, which reads files, writes the change and runs the type checker until it passes.
